@@ -4,15 +4,15 @@ interface IPlayer {
   id: string;
   username: string;
   session_id: string;
-  positionX: number;
-  positionY: number;
+  position_x: number;
+  position_y: number;
 }
 
 export class Player extends Serializable<IPlayer> {
   id: string = '';
   username: string = '';
-  positionX: number = 0;
-  positionY: number = 0;
+  position_x: number = 0;
+  position_y: number = 0;
   session_id: string = '';
 
   protected create(data?: any): Player {

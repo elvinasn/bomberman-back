@@ -4,9 +4,9 @@ import { IsInt } from 'class-validator';
 export class MovePlayerDto {
   @ApiProperty()
   @IsInt()
-  positionX: number;
+  position_x: number;
 
   @ApiProperty()
   @IsInt()
-  positionY: number;
+  position_y: number;
 }

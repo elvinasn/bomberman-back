@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { FirebaseService } from 'src/firebase/firebase.service';
-import { MovePlayerDto } from './dto/move_player.dto';
 import { DatabaseCollection } from 'src/firebase/utils/database_collection';
+import { MovePlayerDto } from './dto/move_player.dto';
 
 @Injectable()
 export class PlayersService {
@@ -10,8 +10,8 @@ export class PlayersService {
   async movePlayer(playerId: string, movePlayerDto: MovePlayerDto) {
     const isSuccess = await this.firebaseService.updateDocument(
       {
-        positionX: movePlayerDto.positionX,
-        positionY: movePlayerDto.positionY,
+        position_x: movePlayerDto.position_x,
+        position_y: movePlayerDto.position_y,
       },
       DatabaseCollection.session_players,
       playerId,
