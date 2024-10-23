@@ -13,6 +13,6 @@ export class PlayersController {
     @Headers('player-id') playerId: string,
     @Body() movePlayerDto: MovePlayerDto,
   ) {
-    return this.playersService.movePlayer(playerId, movePlayerDto);
+    return this.playersService.updatePlayerPosition(playerId, movePlayerDto);
   }
 }

@@ -1,24 +1,32 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { FirebaseService } from 'src/firebase/firebase.service';
-import { DatabaseCollection } from 'src/firebase/utils/database_collection';
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Player } from './player.entity';
 import { MovePlayerDto } from './dto/move_player.dto';
+import { GameGateway } from 'src/ws/game.gateway';
 
 @Injectable()
 export class PlayersService {
-  constructor(private readonly firebaseService: FirebaseService) {}
+  constructor(
+    @InjectRepository(Player)
+    private readonly playerRepository: Repository<Player>,
+    private readonly gameGateway: GameGateway,
+  ) {}
 
-  async movePlayer(playerId: string, movePlayerDto: MovePlayerDto) {
-    const isSuccess = await this.firebaseService.updateDocument(
-      {
-        position_x: movePlayerDto.position_x,
-        position_y: movePlayerDto.position_y,
-      },
-      DatabaseCollection.session_players,
+  async updatePlayerPosition(playerId: string, update: MovePlayerDto) {
+    this.gameGateway.broadcastPlayerMoved(
       playerId,
+      update.position_x,
+      update.position_y,
     );
-    if (!isSuccess) {
-      throw new NotFoundException('Player not found');
+    const player = await this.playerRepository.findOne({
+      where: { id: playerId },
+    });
+    if (player) {
+      player.position_x = update.position_x;
+      player.position_y = update.position_y;
+      await this.playerRepository.save(player);
     }
-    return { status: 'success' };
+    return player;
   }
 }

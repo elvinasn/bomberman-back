@@ -1,124 +1,95 @@
 import { Injectable } from '@nestjs/common';
-import { FirebaseService } from 'src/firebase/firebase.service';
-import { DatabaseCollection } from 'src/firebase/utils/database_collection';
-import { v4 as uuidv4 } from 'uuid';
-import { Session } from './session.model';
-import { Player } from 'src/players/player.model';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Player } from 'src/players/player.entity';
 import { JoinSessionResponseDto } from './dto/join-session-response.dto';
 import { GameState } from './game-state.enum';
+import { v4 as uuidv4 } from 'uuid';
+import { GameGateway } from 'src/ws/game.gateway';
+import { SessionEntity } from './session.entity';
 
 @Injectable()
 export class SessionsService {
-  constructor(private readonly firebaseService: FirebaseService) {}
+  constructor(
+    @InjectRepository(SessionEntity)
+    private sessionRepository: Repository<SessionEntity>,
+    @InjectRepository(Player)
+    private playerRepository: Repository<Player>,
+    private readonly gameGateway: GameGateway,
+  ) {}
 
   async joinSession(): Promise<JoinSessionResponseDto> {
     await this.cleanInactiveSessions();
-    const existingSessions = await this.firebaseService.getDocuments(
-      new Session(),
-      DatabaseCollection.sessions,
-      [],
-    );
-    const playerId = uuidv4();
 
-    const sessionId = existingSessions[0]?.id ?? uuidv4();
-    const player = new Player({
-      id: playerId,
-      username: 'player',
-      session_id: sessionId,
+    const existingSessions = await this.sessionRepository.find({
+      where: { gameState: GameState.waitingForPlayers },
+      relations: ['players'],
     });
+
+    let sessionId: string;
+    let players = [];
 
     if (existingSessions.length) {
-      await this.firebaseService.createDocument(
-        player.toDatabaseObj(),
-        DatabaseCollection.session_players,
-        playerId,
-      );
-      return { player_id: playerId, session_id: existingSessions[0].id };
+      sessionId = existingSessions[0].id;
+      players = existingSessions[0].players;
+    } else {
+      sessionId = uuidv4();
+      const newSession = this.sessionRepository.create({
+        id: sessionId,
+        gameState: GameState.waitingForPlayers,
+      });
+      await this.sessionRepository.save(newSession);
     }
 
-    const session = new Session({
-      id: sessionId,
-      gameState: GameState.waitingForPlayers,
+    const playerId = uuidv4();
+    const player = this.playerRepository.create({
+      id: playerId,
+      username: 'player',
+      session: { id: sessionId } as SessionEntity,
     });
-    await this.firebaseService.createDocument(
-      session.toDatabaseObj(),
-      DatabaseCollection.sessions,
-      sessionId,
-    );
-    await this.firebaseService.createDocument(
-      player.toDatabaseObj(),
-      DatabaseCollection.session_players,
-      playerId,
-    );
+    await this.playerRepository.save(player);
 
-    return { session_id: sessionId, player_id: playerId };
+    this.gameGateway.broadcastPlayerJoined(player);
+
+    return {
+      player_id: playerId,
+      session_id: sessionId,
+      players: [...players, player],
+    };
   }
 
   async leaveSession(playerId: string): Promise<void> {
-    const player = await this.firebaseService.getDocument(
-      new Player(),
-      DatabaseCollection.session_players,
-      playerId,
-    );
+    const player = await this.playerRepository.findOne({
+      where: { id: playerId },
+      relations: ['session'], // Fetch related session
+    });
     if (!player) return;
-    const sessionId = player.session_id;
 
-    await this.firebaseService.deleteDocument(
-      DatabaseCollection.session_players,
-      playerId,
-    );
-    const players = await this.firebaseService.getDocuments(
-      new Player(),
-      DatabaseCollection.session_players,
-      [
-        {
-          type: 'where',
-          field: 'session_id',
-          operator: '==',
-          value: sessionId,
-        },
-      ],
-    );
-    if (players.length === 0) {
-      await this.firebaseService.deleteDocument(
-        DatabaseCollection.sessions,
-        sessionId,
-      );
+    const sessionId = player.session.id;
+
+    await this.playerRepository.delete(playerId);
+
+    const remainingPlayers = await this.playerRepository.find({
+      where: { session: { id: sessionId } },
+    });
+    this.gameGateway.broadcastPlayerLeft(player);
+
+    if (remainingPlayers.length === 0) {
+      await this.sessionRepository.delete(sessionId);
     }
   }
 
   private async cleanInactiveSessions(): Promise<void> {
-    const existingSessions = await this.firebaseService.getDocuments(
-      new Session(),
-      DatabaseCollection.sessions,
-      [],
-    );
+    // Fetch all sessions
+    const existingSessions = await this.sessionRepository.find();
+
+    const twoHoursAgo = new Date();
+    twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
+
     for (const session of existingSessions) {
-      const twoHoursAgo = new Date();
-      twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
       if (session.dateCreated < twoHoursAgo) {
-        await this.firebaseService.deleteDocument(
-          DatabaseCollection.sessions,
-          session.id,
-        );
-        const players = await this.firebaseService.getDocuments(
-          new Player(),
-          DatabaseCollection.session_players,
-          [
-            {
-              type: 'where',
-              field: 'session_id',
-              operator: '==',
-              value: session.id,
-            },
-          ],
-        );
-        for (const player of players) {
-          await this.firebaseService.deleteDocument(
-            DatabaseCollection.session_players,
-            player.id,
-          );
-        }
+        await this.playerRepository.delete({ session: { id: session.id } });
+        await this.sessionRepository.delete(session.id);
       }
     }
   }

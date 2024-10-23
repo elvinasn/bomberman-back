@@ -59,6 +59,7 @@ async function bootstrap() {
     .setVersion('1.0')
     .addBearerAuth()
     .addTag('BOMBERMAN')
+    .setExternalDoc('Postman Collection', '/api-json')
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
